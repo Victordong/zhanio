@@ -62,6 +62,7 @@ func serve(eventHandler EventHandler, numLoops int, loadBalance LoadBalance, lis
 	}()
 
 	for i := 0; i < numLoops; i++ {
+		poll := OpenPoll()
 		l := &loop{
 			idx:     i,
 			poll:    OpenPoll(),
@@ -174,7 +175,7 @@ func (lp *loop) loopOpen(c *conn) error {
 	c.status = Opend
 	if lp.server.eventHandler.Opened != nil {
 		out, action := lp.server.eventHandler.Opened(c)
-		if len(out) >0 {
+		if len(out) > 0 {
 			c.outBuf = append([]byte{}, out...)
 		}
 		c.action = action
@@ -198,7 +199,7 @@ func (lp *loop) loopRead(c *conn) error {
 	if lp.server.eventHandler.Data != nil {
 		out, action := lp.server.eventHandler.Data(c, in)
 		c.action = action
-		if len(out) >0 {
+		if len(out) > 0 {
 			c.outBuf = append([]byte{}, out...)
 		}
 	}
@@ -221,7 +222,7 @@ func (lp *loop) loopWrite(c *conn) error {
 	} else {
 		c.outBuf = c.outBuf[n:]
 	}
-	if len(c.outBuf) == 0 && c.action== None {
+	if len(c.outBuf) == 0 && c.action == None {
 		lp.poll.ModRead(c.fd)
 	}
 	return nil

@@ -10,6 +10,7 @@ require (
 	github.com/rogpeppe/godef v1.1.1 // indirect
 	github.com/sqs/goreturns v0.0.0-20181028201513-538ac6014518 // indirect
 	github.com/tpng/gopkgs v0.0.0-20180428091733-81e90e22e204 // indirect
+	golang.org/x/sys v0.0.0-20191008105621-543471e840be
 	golang.org/x/tools v0.0.0-20191007185444-6536af71d98a // indirect
 	sourcegraph.com/sqs/goreturns v0.0.0-20181028201513-538ac6014518 // indirect
 )
