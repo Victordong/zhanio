@@ -60,7 +60,14 @@ func (p *Poll) Wait(handler func(int, func() error) error) error {
 				}
 				note = true
 			}
-
+			if note {
+				note = false
+				if err := p.queue.ForEach(func(job func() error) error {
+					return handler(0, job)
+				}); err != nil {
+					return err
+				}
+			}
 		}
 	}
 }
