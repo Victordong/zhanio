@@ -12,7 +12,7 @@ type Poll struct {
 	queue  AsyncQueue
 }
 
-type epollHandler func(int, uint32, func() error) error
+type epollHandler func(int, uint32) error
 
 type epollNoter func(uint32, func() error) error
 
@@ -55,7 +55,7 @@ func (p *Poll) Wait(handler epollHandler, noter epollNoter) error {
 		}
 		for i := 0; i < n; i++ {
 			if fd := int(events[i].Fd); fd != p.wfd {
-				if err := handler(fd, events[i].Events, nil); err != nil {
+				if err := handler(fd, events[i].Events); err != nil {
 					return err
 				}
 			} else {
