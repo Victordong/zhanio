@@ -19,6 +19,9 @@ func (q *AsyncQueue) ForEach(iter func(job func() error) error) error {
 	q.jobs = nil
 	q.locker.Unlock()
 	for _, job := range jobs {
-		iter(job)
+		if err := iter(job); err != nil {
+			return err
+		}
 	}
+	return nil
 }

@@ -12,6 +12,10 @@ type Poll struct {
 	queue  AsyncQueue
 }
 
+type epollHandler func(int, uint32, func() error) error
+
+type epollNoter func(uint32, func() error) error
+
 func OpenPoll() (*Poll, error) {
 	poll := new(Poll)
 	epollFD, err := unix.EpollCreate1(0)
@@ -41,17 +45,17 @@ func (p *Poll) ClosePoll() error {
 	return unix.Close(p.wfd)
 }
 
-func (p *Poll) Wait(handler func(int, func() error) error) error {
+func (p *Poll) Wait(handler epollHandler, noter epollNoter) error {
 	events := make([]unix.EpollEvent, 0)
 	var note bool
 	for {
 		n, err := unix.EpollWait(p.fd, events, -1)
-		if err != nil {
+		if err != nil && err != unix.EINTR {
 			return err
 		}
 		for i := 0; i < n; i++ {
 			if fd := int(events[i].Fd); fd != p.wfd {
-				if err := handler(fd, nil); err != nil {
+				if err := handler(fd, events[i].Events, nil); err != nil {
 					return err
 				}
 			} else {
@@ -63,7 +67,7 @@ func (p *Poll) Wait(handler func(int, func() error) error) error {
 			if note {
 				note = false
 				if err := p.queue.ForEach(func(job func() error) error {
-					return handler(0, job)
+					return noter(events[i].Events, job)
 				}); err != nil {
 					return err
 				}
