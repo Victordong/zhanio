@@ -1,16 +1,16 @@
 package zhanio
 
 import (
+	"golang.org/x/sys/unix"
 	"net"
 	"os"
-	"syscall"
 )
 
 type listener struct {
 	ln      net.Listener
 	lnaddr  net.Addr
 	pconn   net.PacketConn
-	opts    addrOpts
+	opts    Options
 	f       *os.File
 	fd      int
 	network string
@@ -19,7 +19,7 @@ type listener struct {
 
 func (ln *listener) close() {
 	if ln.fd != 0 {
-		syscall.Close(ln.fd)
+		unix.Close(ln.fd)
 	}
 	if ln.f != nil {
 		ln.f.Close()
@@ -53,5 +53,5 @@ func (ln *listener) system() error {
 		return err
 	}
 	ln.fd = int(ln.f.Fd())
-	return syscall.SetNonblock(ln.fd, true)
+	return unix.SetNonblock(ln.fd, true)
 }

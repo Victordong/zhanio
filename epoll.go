@@ -2,7 +2,6 @@ package zhanio
 
 import (
 	"golang.org/x/sys/unix"
-	"syscall"
 )
 
 type Poll struct {
@@ -14,7 +13,7 @@ type Poll struct {
 
 type epollHandler func(int, uint32) error
 
-type epollNoter func(uint32, func() error) error
+type epollJober func(uint32, func() error) error
 
 func OpenPoll() (*Poll, error) {
 	poll := new(Poll)
@@ -45,9 +44,9 @@ func (p *Poll) ClosePoll() error {
 	return unix.Close(p.wfd)
 }
 
-func (p *Poll) Wait(handler epollHandler, noter epollNoter) error {
+func (p *Poll) Wait(handler epollHandler, jober epollJober) error {
 	events := make([]unix.EpollEvent, 0)
-	var note bool
+	var runJob bool
 	for {
 		n, err := unix.EpollWait(p.fd, events, -1)
 		if err != nil && err != unix.EINTR {
@@ -62,12 +61,12 @@ func (p *Poll) Wait(handler epollHandler, noter epollNoter) error {
 				if _, err := unix.Read(p.wfd, p.wfdBuf); err != nil {
 					return err
 				}
-				note = true
+				runJob = true
 			}
-			if note {
-				note = false
+			if runJob {
+				runJob = false
 				if err := p.queue.ForEach(func(job func() error) error {
-					return noter(events[i].Events, job)
+					return jober(events[i].Events, job)
 				}); err != nil {
 					return err
 				}
@@ -113,8 +112,19 @@ func (p *Poll) ModWrite(fd int) error {
 }
 
 func (p *Poll) Delete(fd int) error {
-	if err := syscall.EpollCtl(p.fd, syscall.EPOLL_CTL_DEL, fd, nil); err != nil {
+	if err := unix.EpollCtl(p.fd, unix.EPOLL_CTL_DEL, fd, nil); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (p *Poll) Trigger(job func() error) error {
+	_, err := unix.Write(p.wfd, []byte{0, 0, 0, 0, 0, 0, 0, 1})
+	if err != nil {
+		return err
+	}
+	p.queue.locker.Lock()
+	p.queue.jobs = append(p.queue.jobs, job)
+	p.queue.locker.Unlock()
 	return nil
 }
