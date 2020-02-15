@@ -1,12 +1,15 @@
 package zhanio
 
 import (
+	"errors"
 	"net"
 	"os"
 	"strings"
 	"sync"
-	"errors"
+	"time"
 )
+
+const connRingBufferSize = 1024
 
 type LoadBalance int
 
@@ -19,41 +22,46 @@ const (
 type Action int
 
 const (
+	// None indicates that no action should occur following an event.
 	None Action = iota
-	Detach
+
+	// Close closes the connection.
 	Close
+
+	// Shutdown shutdowns the server.
 	Shutdown
+
+	Detach
 )
 
 var errClosing = errors.New("closing")
 var errCloseConns = errors.New("close conns")
 
-type EventHandler struct {
-	Serving func() (action Action)
-	Opened  func(c Conn) (out []byte, action Action)
-	Closed  func(c Conn) (action Action)
-	Data    func(c  Conn, in []byte) (out []byte, action Action)
-	Tick    func() (action Action)
-	Detached func() (action Action)
-}
-
-type addrOpts struct {
-	reusePort bool
+type EventHandler interface {
+	Serving(s Server) (action Action)
+	Opened(c Conn) (out []byte, action Action)
+	Closed(c Conn) (action Action)
+	Data(c Conn) (out []byte, action Action)
+	Tick() (action Action)
+	Detached() (action Action)
 }
 
 type server struct {
 	eventHandler EventHandler
+	mainLoop     *loop
 	loops        []*loop
-	lns          []*listener
+	ln           *listener
 	wg           sync.WaitGroup
+	opts         Options
 	cond         *sync.Cond
 	balance      LoadBalance
+	tch          chan time.Duration
 	accepted     uintptr
 }
 
 type Server struct {
-	Addrs    []net.Addr
 	NumLoops int
+	Addr     net.Addr
 }
 
 func parseAddr(addr string) (network, address string) {
@@ -73,39 +81,38 @@ func parseAddr(addr string) (network, address string) {
 	return
 }
 
-func Serve(eventHandler EventHandler, numLoops int, loadBalance LoadBalance, addrs ...string) error {
-	var lns []*listener
+func Serve(eventHandler EventHandler, addr string, opts Options) error {
+	ln := new(listener)
 	defer func() {
-		for _, ln := range lns {
-			ln.close()
-		}
+		ln.close()
 	}()
-	for _, addr := range addrs {
-		var ln listener
-		ln.network, ln.addr = parseAddr(addr)
-		if ln.network == "unix" {
-			os.RemoveAll(ln.addr)
-		}
-		var err error
-		if ln.network == "udp" {
-			ln.pconn, err = net.ListenPacket(ln.network, ln.addr)
+
+	ln.network, ln.addr = parseAddr(addr)
+	if ln.network == "unix" {
+		os.RemoveAll(ln.addr)
+	}
+	var err error
+	if ln.network == "udp" {
+		ln.pconn, err = net.ListenPacket(ln.network, ln.addr)
+	} else {
+		if opts.ReusePort {
+			ln.ln, err = ReusePortListen(ln.network, ln.addr)
 		} else {
 			ln.ln, err = net.Listen(ln.network, ln.addr)
 		}
-		if err != nil {
-			return err
-		}
-		if ln.pconn != nil {
-			ln.lnaddr = ln.pconn.LocalAddr()
-		} else {
-			ln.lnaddr = ln.ln.Addr()
-		}
-		if err := ln.system(); err != nil {
-			return err
-		}
-		lns = append(lns, &ln)
 	}
-	return serve(eventHandler, numLoops, loadBalance, lns)
+	if err != nil {
+		return err
+	}
+	if ln.pconn != nil {
+		ln.lnaddr = ln.pconn.LocalAddr()
+	} else {
+		ln.lnaddr = ln.ln.Addr()
+	}
+	if err := ln.system(); err != nil {
+		return err
+	}
+	return serve(eventHandler, ln, opts)
 }
 
 func (s *server) signalShutdown() {

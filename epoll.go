@@ -13,8 +13,6 @@ type Poll struct {
 
 type epollHandler func(int, uint32) error
 
-type epollJober func(uint32, func() error) error
-
 func OpenPoll() (*Poll, error) {
 	poll := new(Poll)
 	epollFD, err := unix.EpollCreate1(0)
@@ -44,7 +42,7 @@ func (p *Poll) ClosePoll() error {
 	return unix.Close(p.wfd)
 }
 
-func (p *Poll) Wait(handler epollHandler, jober epollJober) error {
+func (p *Poll) Wait(handler epollHandler) error {
 	events := make([]unix.EpollEvent, 0)
 	var runJob bool
 	for {
@@ -63,13 +61,11 @@ func (p *Poll) Wait(handler epollHandler, jober epollJober) error {
 				}
 				runJob = true
 			}
-			if runJob {
-				runJob = false
-				if err := p.queue.ForEach(func(job func() error) error {
-					return jober(events[i].Events, job)
-				}); err != nil {
-					return err
-				}
+		}
+		if runJob {
+			runJob = false
+			if err := p.queue.ForEach(); err != nil {
+				return err
 			}
 		}
 	}
@@ -119,12 +115,12 @@ func (p *Poll) Delete(fd int) error {
 }
 
 func (p *Poll) Trigger(job func() error) error {
+	p.queue.locker.Lock()
+	p.queue.jobs = append(p.queue.jobs, job)
+	p.queue.locker.Unlock()
 	_, err := unix.Write(p.wfd, []byte{0, 0, 0, 0, 0, 0, 0, 1})
 	if err != nil {
 		return err
 	}
-	p.queue.locker.Lock()
-	p.queue.jobs = append(p.queue.jobs, job)
-	p.queue.locker.Unlock()
 	return nil
 }

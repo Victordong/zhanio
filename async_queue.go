@@ -13,13 +13,13 @@ func (q *AsyncQueue) Push(job func() error) {
 	q.locker.Unlock()
 }
 
-func (q *AsyncQueue) ForEach(iter func(job func() error) error) error {
+func (q *AsyncQueue) ForEach() error {
 	q.locker.Lock()
 	jobs := q.jobs
 	q.jobs = nil
 	q.locker.Unlock()
 	for _, job := range jobs {
-		if err := iter(job); err != nil {
+		if err := job(); err != nil {
 			return err
 		}
 	}
