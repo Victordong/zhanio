@@ -1,9 +1,9 @@
 package zhanio
 
 import (
-	"golang.org/x/sys/unix"
 	"net"
 	"os"
+	"syscall"
 )
 
 type listener struct {
@@ -19,7 +19,7 @@ type listener struct {
 
 func (ln *listener) close() {
 	if ln.fd != 0 {
-		unix.Close(ln.fd)
+		syscall.Close(ln.fd)
 	}
 	if ln.f != nil {
 		ln.f.Close()
@@ -53,5 +53,5 @@ func (ln *listener) system() error {
 		return err
 	}
 	ln.fd = int(ln.f.Fd())
-	return unix.SetNonblock(ln.fd, true)
+	return syscall.SetNonblock(ln.fd, true)
 }

@@ -41,7 +41,7 @@ type EventHandler interface {
 	Serving(s Server) (action Action)
 	Opened(c Conn) (out []byte, action Action)
 	Closed(c Conn) (action Action)
-	Data(c Conn) (out []byte, action Action)
+	Data(c Conn)
 	Tick() (action Action)
 	Detached() (action Action)
 }

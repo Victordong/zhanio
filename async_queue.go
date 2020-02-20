@@ -3,7 +3,7 @@ package zhanio
 import "sync"
 
 type AsyncQueue struct {
-	locker sync.Locker
+	locker sync.Mutex
 	jobs   []func() error
 }
 
