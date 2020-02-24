@@ -15,6 +15,8 @@ func (s *server) start(loopNum int) error {
 				fdconns: make(map[int]*conn),
 				server:  s,
 				count:   0,
+				packet:  make([]byte, 0x10000),
+				codec:   s.codec,
 			}
 			s.loops = append(s.loops, l)
 		} else {
