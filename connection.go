@@ -1,7 +1,6 @@
 package zhanio
 
 import (
-	"fmt"
 	"net"
 	"syscall"
 )
@@ -44,13 +43,11 @@ func (c *conn) write(buf []byte) error {
 	}
 	n, err := syscall.Write(c.fd, buf)
 	if err != nil {
-		fmt.Println("write error1", err)
 	}
 	if err != nil {
 		if err == syscall.EAGAIN {
 			c.outBuf.Write(buf)
 			err = c.loop.poll.ModReadWrite(c.fd)
-			fmt.Println("write error2", err)
 			return err
 		} else {
 			return c.loop.loopCloseConn(c)
@@ -59,7 +56,6 @@ func (c *conn) write(buf []byte) error {
 	if n != len(buf) {
 		c.outBuf.Write(buf[n:])
 		err = c.loop.poll.ModReadWrite(c.fd)
-		fmt.Println("write error3", err)
 		return err
 	}
 	return nil

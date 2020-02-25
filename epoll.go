@@ -1,7 +1,6 @@
 package zhanio
 
 import (
-	"fmt"
 	"syscall"
 )
 
@@ -57,7 +56,6 @@ func (p *Poll) Wait(handler EpollHandler) error {
 	for {
 		n, err := syscall.EpollWait(p.fd, events, -1)
 		if err != nil && err != syscall.EINTR {
-			fmt.Println(err, "1")
 			return err
 		}
 		for i := 0; i < n; i++ {
@@ -67,7 +65,6 @@ func (p *Poll) Wait(handler EpollHandler) error {
 				}
 			} else {
 				if _, err := syscall.Read(p.wfd, p.wfdBuf); err != nil {
-					fmt.Println(err, "2")
 					return err
 				}
 				runJob = true
@@ -76,7 +73,6 @@ func (p *Poll) Wait(handler EpollHandler) error {
 		if runJob {
 			runJob = false
 			if err := p.queue.ForEach(); err != nil {
-				fmt.Println(err, "3")
 			}
 		}
 		if n == len(events) {
