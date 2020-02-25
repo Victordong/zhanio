@@ -52,7 +52,7 @@ func (p *Poll) ClosePoll() error {
 
 func (p *Poll) Wait(handler EpollHandler) error {
 	events := make([]syscall.EpollEvent, InitEventSum)
-	var runJob bool
+	var runJob bool = false
 	for {
 		n, err := syscall.EpollWait(p.fd, events, -1)
 		if err != nil && err != syscall.EINTR {

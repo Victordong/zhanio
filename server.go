@@ -1,7 +1,6 @@
 package zhanio
 
 import (
-	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -28,7 +27,6 @@ func (s *server) start(loopNum int) error {
 		s.wg.Add(1)
 		go func(index int) {
 			defer s.wg.Done()
-			fmt.Println(s.loops[index].idx, s.ln.fd, s.loops[index].poll.fd)
 			s.loops[index].subReactor()
 		}(i)
 	}
@@ -42,22 +40,32 @@ func (s *server) start(loopNum int) error {
 		s.mainLoop = mainLoop
 		s.wg.Add(1)
 		go func() {
-			defer func() {
-				s.wg.Done()
-			}()
-			fmt.Println(mainLoop.idx, s.ln.fd, s.mainLoop.poll.fd, s.mainLoop.poll.wfd)
+			defer s.wg.Done()
 			mainLoop.mainReactor()
 		}()
-		if s.opts.Tick {
+	} else {
+		return err
+	}
+	if s.opts.Tick {
+		if p, err := OpenPoll(); err == nil {
+			tickLoop := &loop{
+				idx:    -2,
+				poll:   p,
+				server: s,
+			}
+			s.tickLoop = tickLoop
 			s.wg.Add(1)
 			go func() {
-				defer s.wg.Done()
-				mainLoop.loopTicker()
+				tickLoop.tickReactor()
 			}()
+			go func() {
+				defer s.wg.Done()
+				tickLoop.loopTicker()
+			}()
+		} else {
+			return err
 		}
-	} else {
-		fmt.Println(err)
-		return err
+
 	}
 	return nil
 }
@@ -96,7 +104,7 @@ func serve(eventHandler EventHandler, ln *listener, opts Options) error {
 	s.eventHandler = eventHandler
 	s.opts = opts
 	s.cond = sync.NewCond(&sync.Mutex{})
-	s.tch = make(chan time.Duration)
+	s.ticktock = make(chan time.Duration)
 	if opts.Codec != nil {
 		s.codec = opts.Codec
 	} else {

@@ -1,7 +1,6 @@
 package zhanio
 
 import (
-	"fmt"
 	"sync"
 )
 
@@ -22,11 +21,9 @@ func (q *AsyncQueue) ForEach() error {
 	q.jobs = nil
 	q.locker.Unlock()
 	for _, job := range jobs {
-		fmt.Println(job)
 		if err := job(); err != nil {
 			return err
 		}
 	}
-	fmt.Println("end")
 	return nil
 }

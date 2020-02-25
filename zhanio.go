@@ -47,14 +47,13 @@ type server struct {
 	eventHandler EventHandler
 	mainLoop     *loop
 	loops        []*loop
-	trigger      *loop
+	tickLoop     *loop
 	ln           *listener
 	wg           sync.WaitGroup
 	opts         Options
 	cond         *sync.Cond
 	balance      LoadBalance
 	codec        Codec
-	tch          chan time.Duration
 	ticktock     chan time.Duration
 	accepted     uint64
 }

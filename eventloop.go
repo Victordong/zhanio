@@ -1,7 +1,6 @@
 package zhanio
 
 import (
-	"fmt"
 	"golang.org/x/sys/unix"
 	"math"
 	"math/rand"
@@ -48,10 +47,19 @@ func (lp *loop) mainReactor() {
 		lp.server.signalShutdown()
 	}()
 	handler := func(fd int, event uint32) error {
-		fmt.Println("connect")
 		if event&InEvents != 0 {
 			return lp.loopAccept(fd)
 		}
+		return nil
+	}
+	lp.poll.Wait(handler)
+}
+
+func (lp *loop) tickReactor() {
+	defer func() {
+		lp.server.signalShutdown()
+	}()
+	handler := func(fd int, event uint32) error {
 		return nil
 	}
 	lp.poll.Wait(handler)
@@ -153,7 +161,7 @@ func (lp *loop) loopRead(c *conn) (err error) {
 		}
 		return lp.loopCloseConn(c)
 	}
-	c.outBuf.Write(lp.packet[:n])
+	c.inBuf.Write(lp.packet[:n])
 	for inFrame, _ := c.read(); inFrame != nil; inFrame, _ = c.read() {
 		go lp.server.eventHandler.Data(c, inFrame)
 		if err := lp.loopAction(c); err != nil {
@@ -210,26 +218,20 @@ func (lp *loop) loopCloseConn(c *conn) error {
 }
 
 func (lp *loop) loopTicker() {
-	var (
-		delay time.Duration
-		open  bool
-	)
 	for {
-		sniffError(lp.poll.Trigger(func() (err error) {
+		lp.poll.Trigger(func() (err error) {
 			delay, action := lp.server.eventHandler.Tick()
-			fmt.Println("???")
 			lp.server.ticktock <- delay
 			switch action {
 			case None:
 			case Shutdown:
 				err = errServerShutdown
 			}
-			return
-		}))
-		if delay, open = <-lp.server.ticktock; open {
+			return nil
+		})
+		select {
+		case delay := <-lp.server.ticktock:
 			time.Sleep(delay)
-		} else {
-			break
 		}
 	}
 }

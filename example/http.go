@@ -24,12 +24,12 @@ func (h *handler) Closed(c zhanio.Conn) (action zhanio.Action) {
 	return zhanio.None
 }
 func (h *handler) Data(c zhanio.Conn, frame []byte) {
-	fmt.Println(frame)
+	c.AsyncWrite(frame)
 }
 
 func (h *handler) Tick() (delay time.Duration, action zhanio.Action) {
 	fmt.Println("this is a tick")
-	return h.tick, zhanio.None
+	return time.Second * 5, zhanio.None
 }
 
 func main() {
@@ -42,6 +42,7 @@ func main() {
 	opts := zhanio.Options{
 		NumLoops:    2,
 		LoadBalance: zhanio.RoundRobin,
+		Tick:        true,
 	}
 	err := zhanio.Serve(h, fmt.Sprintf("tcp://:%d", port), opts)
 	if err != nil {
