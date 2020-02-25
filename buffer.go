@@ -8,7 +8,7 @@ type RingBuffer struct {
 	isEmpty bool
 }
 
-const InitSize = 100
+const InitSize = 1024
 
 func NewBuffer(size int) *RingBuffer {
 	return &RingBuffer{
@@ -48,9 +48,9 @@ func (r *RingBuffer) Write(p []byte) {
 		r.malloc(n - r.Free())
 	}
 	if r.wPos+n > r.size {
-		head, tail := p[:r.size-r.wPos-n], p[r.size-r.wPos-n:]
+		head, tail := p[:r.size-r.wPos], p[r.size-r.wPos:]
 		copy(r.buf[r.wPos:], head)
-		copy(r.buf, tail)
+		copy(r.buf[r.wPos+len(head):], tail)
 	} else {
 		copy(r.buf[r.wPos:], p)
 	}
@@ -107,4 +107,5 @@ func (r *RingBuffer) malloc(cap int) {
 	head, tail := r.ReadRaw()
 	copy(newBuf, head)
 	copy(newBuf[len(head):], tail)
+	r.wPos, r.rPos, r.size, r.buf = r.size, 0, newSize, newBuf
 }

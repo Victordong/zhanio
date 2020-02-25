@@ -17,10 +17,12 @@ func (h *handler) Serving(s zhanio.Server) (action zhanio.Action) {
 }
 
 func (h *handler) Opened(c zhanio.Conn) (out []byte, action zhanio.Action) {
+	fmt.Println("opened")
 	return nil, zhanio.None
 }
 
 func (h *handler) Closed(c zhanio.Conn) (action zhanio.Action) {
+	fmt.Println("closed")
 	return zhanio.None
 }
 func (h *handler) Data(c zhanio.Conn, frame []byte) {
@@ -40,11 +42,10 @@ func main() {
 	flag.Parse()
 	h := &handler{tick: tick}
 	opts := zhanio.Options{
-		NumLoops:    2,
+		NumLoops:    4,
 		LoadBalance: zhanio.RoundRobin,
-		Tick:        true,
 	}
-	err := zhanio.Serve(h, fmt.Sprintf("tcp://:%d", port), opts)
+	err := zhanio.Serve(h, fmt.Sprintf("tcp://0.0.0.0:%d", port), opts)
 	if err != nil {
 		fmt.Println(err)
 	}
