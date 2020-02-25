@@ -6,11 +6,11 @@ import (
 )
 
 const (
-	InitEventSum = 128
-	ErrEvents    = syscall.EPOLLERR | syscall.EPOLLHUP | syscall.EPOLLRDHUP
-	OutEvents    = ErrEvents | syscall.EPOLLOUT
-	InEvents     = ErrEvents | syscall.EPOLLIN | syscall.EPOLLPRI
-	EPOLLET      = 1 << 31
+	InitEventSum    = 128
+	readEvents      = syscall.EPOLLPRI | syscall.EPOLLIN
+	writeEvents     = syscall.EPOLLOUT
+	readWriteEvents = readEvents | writeEvents
+	EPOLLET         = 1 << 31
 )
 
 type Poll struct {
@@ -97,28 +97,28 @@ func (p *Poll) execute(fd int, op int, events uint32) error {
 }
 
 func (p *Poll) AddReadWrite(fd int) error {
-	return p.execute(fd, syscall.EPOLL_CTL_ADD, syscall.EPOLLIN|syscall.EPOLLOUT)
+	return p.execute(fd, syscall.EPOLL_CTL_ADD, readWriteEvents)
 }
 
 func (p *Poll) AddRead(fd int) error {
-	return p.execute(fd, syscall.EPOLL_CTL_ADD, syscall.EPOLLIN)
+	return p.execute(fd, syscall.EPOLL_CTL_ADD, readEvents)
 }
 
 func (p *Poll) AddWrite(fd int) error {
-	return p.execute(fd, syscall.EPOLL_CTL_ADD, syscall.EPOLLOUT)
+	return p.execute(fd, syscall.EPOLL_CTL_ADD, writeEvents)
 }
 
 func (p *Poll) ModReadWrite(fd int) error {
-	return p.execute(fd, syscall.EPOLL_CTL_MOD, syscall.EPOLLIN|syscall.EPOLLOUT)
+	return p.execute(fd, syscall.EPOLL_CTL_MOD, readWriteEvents)
 }
 
 func (p *Poll) ModRead(fd int) error {
-	return p.execute(fd, syscall.EPOLL_CTL_MOD, syscall.EPOLLIN)
+	return p.execute(fd, syscall.EPOLL_CTL_MOD, readEvents)
 
 }
 
 func (p *Poll) ModWrite(fd int) error {
-	return p.execute(fd, syscall.EPOLL_CTL_MOD, syscall.EPOLLOUT)
+	return p.execute(fd, syscall.EPOLL_CTL_MOD, writeEvents)
 }
 
 func (p *Poll) Mod(fd int, event uint32) error {

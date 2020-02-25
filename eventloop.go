@@ -30,9 +30,9 @@ func (lp *loop) subReactor() {
 			switch {
 			case c.action != None:
 				return lp.loopAction(c)
-			case c.outBuf.Length() > 0 && event&OutEvents != 0:
+			case c.outBuf.Length() > 0 && event&writeEvents != 0:
 				return lp.loopWrite(c)
-			case event&InEvents != 0:
+			case event&readEvents != 0:
 				return lp.loopRead(c)
 			}
 		}
@@ -47,7 +47,7 @@ func (lp *loop) mainReactor() {
 		lp.server.signalShutdown()
 	}()
 	handler := func(fd int, event uint32) error {
-		if event&InEvents != 0 {
+		if event&readEvents != 0 {
 			return lp.loopAccept(fd)
 		}
 		return nil
