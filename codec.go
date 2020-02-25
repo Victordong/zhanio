@@ -13,5 +13,6 @@ func (codec *defaultCodec) Encode(c Conn, buf []byte) ([]byte, error) {
 }
 
 func (codec *defaultCodec) Decode(c Conn) ([]byte, error) {
-	return c.Read(), nil
+	result := c.Read()
+	return result, nil
 }

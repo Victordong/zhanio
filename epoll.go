@@ -9,6 +9,7 @@ const (
 	ErrEvents    = syscall.EPOLLERR | syscall.EPOLLHUP | syscall.EPOLLRDHUP
 	OutEvents    = ErrEvents | syscall.EPOLLOUT
 	InEvents     = ErrEvents | syscall.EPOLLIN | syscall.EPOLLPRI
+	EPOLLET      = 1 << 31
 )
 
 type Poll struct {

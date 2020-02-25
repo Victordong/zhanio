@@ -30,8 +30,6 @@ const (
 
 	// Shutdown shutdowns the server.
 	Shutdown
-
-	Detach
 )
 
 var errClosing = errors.New("closing")
@@ -41,22 +39,24 @@ type EventHandler interface {
 	Serving(s Server) (action Action)
 	Opened(c Conn) (out []byte, action Action)
 	Closed(c Conn) (action Action)
-	Data(c Conn)
-	Tick() (action Action)
-	Detached() (action Action)
+	Data(c Conn, frame []byte)
+	Tick() (delay time.Duration, action Action)
 }
 
 type server struct {
 	eventHandler EventHandler
 	mainLoop     *loop
 	loops        []*loop
+	trigger      *loop
 	ln           *listener
 	wg           sync.WaitGroup
 	opts         Options
 	cond         *sync.Cond
 	balance      LoadBalance
+	codec        Codec
 	tch          chan time.Duration
-	accepted     uintptr
+	ticktock     chan time.Duration
+	accepted     uint64
 }
 
 type Server struct {
@@ -95,11 +95,7 @@ func Serve(eventHandler EventHandler, addr string, opts Options) error {
 	if ln.network == "udp" {
 		ln.pconn, err = net.ListenPacket(ln.network, ln.addr)
 	} else {
-		if opts.ReusePort {
-			ln.ln, err = ReusePortListen(ln.network, ln.addr)
-		} else {
-			ln.ln, err = net.Listen(ln.network, ln.addr)
-		}
+		ln.ln, err = net.Listen(ln.network, ln.addr)
 	}
 	if err != nil {
 		return err

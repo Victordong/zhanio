@@ -1,6 +1,9 @@
 package zhanio
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 type AsyncQueue struct {
 	locker sync.Mutex
@@ -19,9 +22,11 @@ func (q *AsyncQueue) ForEach() error {
 	q.jobs = nil
 	q.locker.Unlock()
 	for _, job := range jobs {
+		fmt.Println(job)
 		if err := job(); err != nil {
 			return err
 		}
 	}
+	fmt.Println("end")
 	return nil
 }

@@ -1,156 +1,103 @@
 package zhanio
 
 import (
+	"fmt"
+	"golang.org/x/sys/unix"
+	"math"
+	"math/rand"
 	"net"
-	"runtime"
-	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 )
 
 type loop struct {
 	idx     int
 	poll    *Poll
-	packet  []byte
 	fdconns map[int]*conn
 	server  *server
-	count   int32
+	count   int64
+	packet  []byte
+	codec   Codec
 }
 
-func serve(eventHandler EventHandler, numLoops int, loadBalance LoadBalance, listeners []*listener) error {
-	if numLoops <= 0 {
-		if numLoops == 0 {
-			numLoops = 1
-		} else {
-			numLoops = runtime.NumCPU()
-		}
-	}
-
-	s := &server{}
-	s.eventHandler = eventHandler
-	s.lns = listeners
-	s.cond = sync.NewCond(&sync.Mutex{})
-	s.balance = loadBalance
-
-	if s.eventHandler.Serving != nil {
-		var svr Server
-		svr.NumLoops = numLoops
-		svr.Addrs = make([]net.Addr, len(listeners))
-		for i, ln := range listeners {
-			svr.Addrs[i] = ln.lnaddr
-		}
-		action := s.eventHandler.Serving()
-		switch action {
-		case None:
-		case Shutdown:
-			return nil
-		}
-	}
-
-	defer func() {
-		s.waitForShutDown()
-		for _, l := range s.loops {
-			l.poll.Trigger(0)
-		}
-		s.wg.Wait()
-		for _, l := range s.loops {
-			for _, c := range l.fdconns {
-				l.loopCloseConn(c)
-			}
-			l.poll.ClosePoll()
-		}
-	}()
-
-	for i := 0; i < numLoops; i++ {
-		poll := OpenPoll()
-		l := &loop{
-			idx:     i,
-			poll:    OpenPoll(),
-			packet:  make([]byte, 0xFFFF),
-			fdconns: make(map[int]*conn),
-			server:  s,
-		}
-		for _, ln := range listeners {
-			l.poll.AddRead(ln.fd)
-		}
-		s.loops = append(s.loops, l)
-	}
-
-	s.wg.Add(len(s.loops))
-	for _, l := range s.loops {
-		go l.loopRun()
-	}
-
-	return nil
-}
-
-func (lp *loop) loopRun() {
+func (lp *loop) subReactor() {
 	defer func() {
 		lp.server.signalShutdown()
-		lp.server.wg.Done()
 	}()
 
-	lp.poll.Wait(func(fd int) error {
-		if fd == 0 {
-			return nil
+	handler := func(fd int, event uint32) error {
+		if c, ok := lp.fdconns[fd]; ok {
+			switch {
+			case c.action != None:
+				return lp.loopAction(c)
+			case c.outBuf.Length() > 0 && event&OutEvents != 0:
+				return lp.loopWrite(c)
+			case event&InEvents != 0:
+				return lp.loopRead(c)
+			}
 		}
-		c := lp.fdconns[fd]
-		switch {
-		case c == nil:
-			return lp.loopAccept(fd)
-		case c.status == Closed:
-			return lp.loopOpen(c)
-		case len(c.outBuf) > 0:
-			return lp.loopWrite(c)
-		case c.action != None:
-			return lp.loopAction(c)
-		default:
-			return lp.loopRead(c)
-		}
-	})
+		return nil
+	}
 
+	lp.poll.Wait(handler)
+}
+
+func (lp *loop) mainReactor() {
+	defer func() {
+		lp.server.signalShutdown()
+	}()
+	handler := func(fd int, event uint32) error {
+		fmt.Println("connect")
+		if event&InEvents != 0 {
+			return lp.loopAccept(fd)
+		}
+		return nil
+	}
+	lp.poll.Wait(handler)
 }
 
 func (lp *loop) loopAccept(fd int) error {
-	for _, ln := range lp.server.lns {
-		if ln.fd == fd {
-			if len(lp.server.loops) > 1 {
-				switch lp.server.balance {
-				case LeastConnections:
-					n := atomic.LoadInt32(&lp.count)
-					for _, l := range lp.server.loops {
-						if l.idx != lp.idx {
-							if atomic.LoadInt32(&l.count) < n {
-								return nil
-							}
-						}
-					}
-				case RoundRobin:
-					idx := int(atomic.LoadUintptr(&lp.server.accepted)) % len(lp.server.loops)
-					if idx != lp.idx {
-						return nil
-					}
-					atomic.AddUintptr(&lp.server.accepted, 1)
+	ln := lp.server.ln
+	if ln.fd == fd {
+
+		var cur *loop
+		switch lp.server.balance {
+		case Random:
+			idx := rand.Intn(len(lp.server.loops))
+			cur = lp.server.loops[idx]
+		case LeastConnections:
+			n := int64(math.MaxInt64)
+			for _, l := range lp.server.loops {
+				if atomic.LoadInt64(&l.count) < n {
+					cur = l
 				}
 			}
-			if ln.pconn != nil {
-				return lp.loopUdpRead()
+		case RoundRobin:
+			idx := int(atomic.LoadUint64(&lp.server.accepted)) % len(lp.server.loops)
+			cur = lp.server.loops[idx]
+			atomic.AddUint64(&lp.server.accepted, 1)
+		}
+
+		nfd, sa, err := syscall.Accept(fd)
+		if err != nil {
+			if err == syscall.EAGAIN {
+				return nil
 			}
-			nfd, sa, err := syscall.Accept(fd)
-			if err != nil {
-				if err == syscall.EAGAIN {
-					return nil
-				}
-				return err
+			return err
+		}
+
+		if err := syscall.SetNonblock(nfd, true); err != nil {
+			return err
+		}
+
+		if cur != nil {
+			if err := cur.poll.AddRead(nfd); err == nil {
+				c := &conn{fd: nfd, sa: sa, loop: cur, inBuf: NewBuffer(InitSize), outBuf: NewBuffer(InitSize)}
+				cur.fdconns[c.fd] = c
+				atomic.AddInt64(&cur.count, 1)
+				return cur.loopOpen(c)
 			}
-			if err := syscall.SetNonblock(nfd, true); err != nil {
-				return err
-			}
-			c := &conn{fd: nfd, sa: sa, loop: lp}
-			lp.fdconns[c.fd] = c
-			lp.poll.AddReadWrite(c.fd)
-			atomic.AddInt32(&lp.count, 1)
-			break
 		}
 	}
 	return nil
@@ -160,79 +107,99 @@ func (lp *loop) loopAction(c *conn) error {
 	switch c.action {
 	default:
 		c.action = None
+		return nil
 	case Close:
-		lp.loopCloseConn(c)
-	case Detach:
-		lp.loopDetachConn(c)
-	}
-	if len(c.outBuf) == 0 && c.action == None {
-		lp.poll.ModRead(c.fd)
+		c.action = None
+		return lp.loopCloseConn(c)
+	case Shutdown:
+		c.action = None
+		lp.loopWrite(c)
+		return errServerShutdown
 	}
 	return nil
 }
 
 func (lp *loop) loopOpen(c *conn) error {
 	c.status = Opend
-	if lp.server.eventHandler.Opened != nil {
-		out, action := lp.server.eventHandler.Opened(c)
-		if len(out) > 0 {
-			c.outBuf = append([]byte{}, out...)
+	c.localAddr = lp.server.ln.lnaddr
+	c.remoteAddr = SockaddrToTCPOrUnixAddr(c.sa)
+
+	if lp.server.opts.KeepAlive > 0 {
+		if _, ok := lp.server.ln.ln.(*net.TCPListener); ok {
+			err := SetKeepAlive(c.fd, lp.server.opts.KeepAlive)
+			return err
 		}
-		c.action = action
 	}
-	if len(c.outBuf) == 0 && c.action == None {
-		lp.poll.ModRead(c.fd)
+
+	out, action := lp.server.eventHandler.Opened(c)
+	c.action = action
+	if len(out) > 0 {
+		c.outBuf.Write(out)
 	}
-	return nil
+
+	if c.outBuf.Length() > 0 {
+		err := lp.poll.ModWrite(c.fd)
+		return err
+	}
+
+	return lp.loopAction(c)
 }
 
-func (lp *loop) loopRead(c *conn) error {
-	var in []byte
-	n, err := syscall.Read(c.fd, lp.packet)
+func (lp *loop) loopRead(c *conn) (err error) {
+	n, err := unix.Read(c.fd, lp.packet)
 	if n == 0 || err != nil {
 		if err == syscall.EAGAIN {
 			return nil
 		}
 		return lp.loopCloseConn(c)
 	}
-	in = lp.packet[:n]
-	if lp.server.eventHandler.Data != nil {
-		out, action := lp.server.eventHandler.Data(c, in)
-		c.action = action
-		if len(out) > 0 {
-			c.outBuf = append([]byte{}, out...)
+	c.outBuf.Write(lp.packet[:n])
+	for inFrame, _ := c.read(); inFrame != nil; inFrame, _ = c.read() {
+		go lp.server.eventHandler.Data(c, inFrame)
+		if err := lp.loopAction(c); err != nil {
+			return err
+		}
+		if c.status != Opend {
+			return nil
 		}
 	}
-	if len(c.outBuf) != 0 || c.action != None {
-		lp.poll.ModReadWrite(c.fd)
-	}
+
 	return nil
 }
 
 func (lp *loop) loopWrite(c *conn) error {
-	n, err := syscall.Write(c.fd, c.outBuf)
+	begin, end := c.outBuf.ReadRaw()
+
+	n, err := syscall.Write(c.fd, begin)
 	if err != nil {
 		if err == syscall.EAGAIN {
 			return nil
 		}
 		return lp.loopCloseConn(c)
 	}
-	if n == len(c.outBuf) {
-		c.outBuf = nil
-	} else {
-		c.outBuf = c.outBuf[n:]
+	c.outBuf.ClearN(n)
+
+	if n == len(begin) && end != nil {
+		n, err := syscall.Write(c.fd, end)
+		if err != nil {
+			if err == syscall.EAGAIN {
+				return nil
+			}
+			return lp.loopCloseConn(c)
+		}
+		c.outBuf.ClearN(n)
 	}
-	if len(c.outBuf) == 0 && c.action == None {
+
+	if c.outBuf.IsEmpty() {
 		lp.poll.ModRead(c.fd)
 	}
-	return nil
+	return lp.loopAction(c)
 }
 
 func (lp *loop) loopCloseConn(c *conn) error {
-	atomic.AddInt32(&lp.count, -1)
-	delete(lp.fdconns, c.fd)
-	syscall.Close(c.fd)
-	if lp.server.eventHandler.Closed != nil {
+	if lp.poll.Delete(c.fd) == nil && syscall.Close(c.fd) == nil {
+		delete(lp.fdconns, c.fd)
+		atomic.AddInt64(&lp.count, -1)
 		switch lp.server.eventHandler.Closed(c) {
 		case None:
 		case Shutdown:
@@ -242,25 +209,27 @@ func (lp *loop) loopCloseConn(c *conn) error {
 	return nil
 }
 
-func (lp *loop) loopDetachConn(c *conn) error {
-	lp.poll.ModDetach(c.fd)
-	atomic.AddInt32(&lp.count, -1)
-	delete(lp.fdconns, c.fd)
-	if err := syscall.SetNonblock(c.fd, false); err != nil {
-		return err
+func (lp *loop) loopTicker() {
+	var (
+		delay time.Duration
+		open  bool
+	)
+	for {
+		sniffError(lp.poll.Trigger(func() (err error) {
+			delay, action := lp.server.eventHandler.Tick()
+			fmt.Println("???")
+			lp.server.ticktock <- delay
+			switch action {
+			case None:
+			case Shutdown:
+				err = errServerShutdown
+			}
+			return
+		}))
+		if delay, open = <-lp.server.ticktock; open {
+			time.Sleep(delay)
+		} else {
+			break
+		}
 	}
-	switch lp.server.eventHandler.Detached() {
-	case None:
-	case Shutdown:
-		return nil
-	}
-	return nil
-}
-
-func (lp *loop) loopUdpRead() error {
-	return nil
-}
-
-func (lp *loop) loopWake() error {
-	return nil
 }
