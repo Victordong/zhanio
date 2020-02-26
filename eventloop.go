@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/rand"
 	"net"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -101,7 +102,7 @@ func (lp *loop) loopAccept(fd int) error {
 
 		if cur != nil {
 			if err := cur.poll.AddRead(nfd); err == nil {
-				c := &conn{fd: nfd, sa: sa, loop: cur, inBuf: NewBuffer(InitSize), outBuf: NewBuffer(InitSize)}
+				c := &conn{fd: nfd, sa: sa, loop: cur, inBuf: NewBuffer(InitSize), outBuf: NewBuffer(InitSize), readLock: sync.Mutex{}, writeLock: sync.Mutex{}}
 				cur.fdconns[c.fd] = c
 				atomic.AddInt64(&cur.count, 1)
 				return cur.loopOpen(c)
@@ -142,7 +143,9 @@ func (lp *loop) loopOpen(c *conn) error {
 	out, action := lp.server.eventHandler.Opened(c)
 	c.action = action
 	if len(out) > 0 {
+		c.writeLock.Lock()
 		c.outBuf.Write(out)
+		c.writeLock.Unlock()
 	}
 
 	if c.outBuf.Length() > 0 {
@@ -161,7 +164,9 @@ func (lp *loop) loopRead(c *conn) (err error) {
 		}
 		return lp.loopCloseConn(c)
 	}
+	c.readLock.Lock()
 	c.inBuf.Write(lp.packet[:n])
+	c.readLock.Unlock()
 	for inFrame, _ := c.read(); inFrame != nil; inFrame, _ = c.read() {
 		go lp.server.eventHandler.Data(c, inFrame)
 		if err := lp.loopAction(c); err != nil {
@@ -176,7 +181,9 @@ func (lp *loop) loopRead(c *conn) (err error) {
 }
 
 func (lp *loop) loopWrite(c *conn) error {
+	c.writeLock.Lock()
 	begin, end := c.outBuf.ReadRaw()
+	c.writeLock.Unlock()
 
 	n, err := syscall.Write(c.fd, begin)
 	if err != nil {
