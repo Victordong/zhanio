@@ -4,8 +4,24 @@ import (
 	"flag"
 	"fmt"
 	"github.com/Victordong/zhanio"
+	"net/http"
+	"runtime/pprof"
+	_ "runtime/pprof"
 	"time"
 )
+
+func goppf() {
+	http.HandleFunc("/", handleFunc)
+	http.ListenAndServe("0.0.0.0:8030", nil)
+}
+
+func handleFunc(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("connection")
+	w.Header().Set("Content-Type", "text/plain")
+
+	p := pprof.Lookup("goroutine")
+	p.WriteTo(w, 1)
+}
 
 type handler struct {
 	tick time.Duration
@@ -45,6 +61,7 @@ func main() {
 		NumLoops:    4,
 		LoadBalance: zhanio.RoundRobin,
 	}
+	go goppf()
 	err := zhanio.Serve(h, fmt.Sprintf("tcp://0.0.0.0:%d", port), opts)
 	if err != nil {
 		fmt.Println(err)
