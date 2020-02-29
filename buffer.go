@@ -12,8 +12,8 @@ const InitSize = 1024
 
 func NewBuffer(size int) *RingBuffer {
 	return &RingBuffer{
-		buf:     make([]byte, InitSize),
-		size:    InitSize,
+		buf:     make([]byte, size),
+		size:    size,
 		rPos:    0,
 		wPos:    0,
 		isEmpty: true,
@@ -21,10 +21,13 @@ func NewBuffer(size int) *RingBuffer {
 }
 
 func (r *RingBuffer) ReadRaw() ([]byte, []byte) {
+	if r.isEmpty {
+		return nil, nil
+	}
 	if r.rPos < r.wPos {
 		return r.buf[r.rPos:r.wPos], nil
 	} else {
-		return r.buf[r.rPos:], r.buf[r.wPos:]
+		return r.buf[r.rPos:], r.buf[:r.wPos]
 	}
 }
 
