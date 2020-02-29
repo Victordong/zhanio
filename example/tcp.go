@@ -10,11 +10,6 @@ import (
 	"time"
 )
 
-func goppf() {
-	http.HandleFunc("/", handleFunc)
-	http.ListenAndServe("0.0.0.0:8030", nil)
-}
-
 func handleFunc(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("connection")
 	w.Header().Set("Content-Type", "text/plain")
@@ -42,6 +37,7 @@ func (h *handler) Closed(c zhanio.Conn) (action zhanio.Action) {
 	return zhanio.None
 }
 func (h *handler) Data(c zhanio.Conn, frame []byte) {
+	fmt.Println("data")
 	c.AsyncWrite(frame)
 }
 
@@ -61,7 +57,6 @@ func main() {
 		NumLoops:    4,
 		LoadBalance: zhanio.RoundRobin,
 	}
-	go goppf()
 	err := zhanio.Serve(h, fmt.Sprintf("tcp://0.0.0.0:%d", port), opts)
 	if err != nil {
 		fmt.Println(err)
