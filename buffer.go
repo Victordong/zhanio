@@ -1,18 +1,18 @@
 package zhanio
 
 type RingBuffer struct {
-	buf     []byte
-	size    int
-	rPos    int
-	wPos    int
-	isEmpty bool
+	buf      *[]byte
+	size     int
+	rPos     int
+	wPos     int
+	isEmpty  bool
+	bytePool *BytePool
 }
 
 const InitSize = 1024
 
 func NewBuffer(size int) *RingBuffer {
 	return &RingBuffer{
-		buf:     make([]byte, size),
 		size:    size,
 		rPos:    0,
 		wPos:    0,
@@ -25,9 +25,9 @@ func (r *RingBuffer) ReadRaw() ([]byte, []byte) {
 		return nil, nil
 	}
 	if r.rPos < r.wPos {
-		return r.buf[r.rPos:r.wPos], nil
+		return (*r.buf)[r.rPos:r.wPos], nil
 	} else {
-		return r.buf[r.rPos:], r.buf[:r.wPos]
+		return (*r.buf)[r.rPos:], (*r.buf)[:r.wPos]
 	}
 }
 
@@ -52,10 +52,10 @@ func (r *RingBuffer) Write(p []byte) {
 	}
 	if r.wPos+n > r.size {
 		head, tail := p[:r.size-r.wPos], p[r.size-r.wPos:]
-		copy(r.buf[r.wPos:], head)
-		copy(r.buf[r.wPos+len(head):], tail)
+		copy((*r.buf)[r.wPos:], head)
+		copy((*r.buf)[r.wPos+len(head):], tail)
 	} else {
-		copy(r.buf[r.wPos:], p)
+		copy((*r.buf)[r.wPos:], p)
 	}
 	r.wPos = (r.wPos + n) % r.size
 	r.isEmpty = false
@@ -90,9 +90,7 @@ func (r *RingBuffer) IsEmpty() bool {
 }
 
 func (r *RingBuffer) Reset() {
-	r.wPos = 0
-	r.rPos = 0
-	r.isEmpty = true
+	r.wPos, r.rPos, r.isEmpty = 0, 0, true
 }
 
 func (r *RingBuffer) malloc(cap int) {
@@ -106,9 +104,20 @@ func (r *RingBuffer) malloc(cap int) {
 	} else {
 		newSize = r.size + cap
 	}
-	newBuf := make([]byte, newSize)
+	var newBuf *[]byte
+	r.bytePool.Put(r.buf)
+	newBuf = r.bytePool.Get(newSize)
+	if newBuf == nil {
+		part := make([]byte, newSize)
+		newBuf = &part
+	}
 	head, tail := r.ReadRaw()
-	copy(newBuf, head)
-	copy(newBuf[len(head):], tail)
-	r.wPos, r.rPos, r.size, r.buf = r.size, 0, newSize, newBuf
+	copy(*newBuf, head)
+	copy((*newBuf)[len(head):], tail)
+	r.wPos, r.rPos, r.size, r.buf = r.size, 0, len(*newBuf), newBuf
+}
+
+func (r *RingBuffer) recover() {
+	r.bytePool.Put(r.buf)
+	r.wPos, r.rPos, r.isEmpty, r.buf = 0, 0, true, nil
 }

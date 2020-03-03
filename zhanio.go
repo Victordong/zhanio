@@ -56,6 +56,8 @@ type server struct {
 	codec        Codec
 	ticktock     chan time.Duration
 	accepted     uint64
+	poolTypeNum  int
+	sliceSize    int
 }
 
 type Server struct {

@@ -12,6 +12,8 @@ type Options struct {
 	KeepAlive   int
 	Tick        bool
 	Codec       Codec
+	PoolNumber  int
+	SliceSize   int
 }
 
 // ReusePortListen returns a net.Listener for TCP.

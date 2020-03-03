@@ -2,21 +2,19 @@ package main
 
 import (
 	"fmt"
-	"sync"
-	"time"
 )
 
+type Func func()
+
 func main() {
-	var wg sync.WaitGroup
-	wg.Add(10)
+	Funcs := make([]Func, 0)
 	for i := 0; i < 10; i++ {
-		go func() {
-			defer wg.Done()
-			x := Buffer.Get()
-			fmt.Println(x)
-			time.Sleep(time.Second)
-			Buffer.Put(x)
-		}()
+		index := i
+		Funcs = append(Funcs, func() {
+			fmt.Println(index)
+		})
 	}
-	wg.Wait()
+	for _, Func := range Funcs {
+		Func()
+	}
 }

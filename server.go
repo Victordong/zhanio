@@ -10,13 +10,15 @@ func (s *server) start(loopNum int) error {
 	for i := 0; i < loopNum; i++ {
 		if p, err := OpenPoll(); err == nil {
 			l := &loop{
-				idx:     i,
-				poll:    p,
-				fdconns: make(map[int]*conn),
-				server:  s,
-				count:   0,
-				packet:  make([]byte, 0x10000),
-				codec:   s.codec,
+				idx:        i,
+				poll:       p,
+				fdconns:    make(map[int]*conn),
+				server:     s,
+				count:      0,
+				packet:     make([]byte, 0x10000),
+				codec:      s.codec,
+				bufferPool: InitBufferPool(),
+				bytePool:   InitBytePool(s.poolTypeNum, s.sliceSize),
 			}
 			s.loops = append(s.loops, l)
 		} else {
@@ -110,7 +112,16 @@ func serve(eventHandler EventHandler, ln *listener, opts Options) error {
 	} else {
 		s.codec = &defaultCodec{}
 	}
-
+	if opts.PoolNumber != 0 {
+		s.poolTypeNum = opts.PoolNumber
+	} else {
+		s.poolTypeNum = defaultTypeNum
+	}
+	if opts.SliceSize != 0 {
+		s.sliceSize = opts.SliceSize
+	} else {
+		s.sliceSize = defaultSliceSize
+	}
 	server := Server{NumLoops: opts.NumLoops, Addr: ln.lnaddr}
 	action := s.eventHandler.Serving(server)
 	switch action {

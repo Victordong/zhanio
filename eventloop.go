@@ -12,13 +12,15 @@ import (
 )
 
 type loop struct {
-	idx     int
-	poll    *Poll
-	fdconns map[int]*conn
-	server  *server
-	count   int64
-	packet  []byte
-	codec   Codec
+	idx        int
+	poll       *Poll
+	fdconns    map[int]*conn
+	server     *server
+	count      int64
+	packet     []byte
+	codec      Codec
+	bufferPool *BufferPool
+	bytePool   *BytePool
 }
 
 func (lp *loop) subReactor() {
@@ -102,7 +104,10 @@ func (lp *loop) loopAccept(fd int) error {
 
 		if cur != nil {
 			if err := cur.poll.AddRead(nfd); err == nil {
-				c := &conn{fd: nfd, sa: sa, loop: cur, inBuf: NewBuffer(InitSize), outBuf: NewBuffer(InitSize), readLock: sync.Mutex{}, writeLock: sync.Mutex{}}
+				inBuf, outBuf := lp.bufferPool.Get().(*RingBuffer), lp.bufferPool.Get().(*RingBuffer)
+				inBuf.buf, outBuf.buf = lp.bytePool.Get(lp.bytePool.sliceSize), lp.bytePool.Get(lp.bytePool.sliceSize)
+				inBuf.size, outBuf.size = lp.bytePool.sliceSize, lp.bytePool.sliceSize
+				c := &conn{fd: nfd, sa: sa, loop: cur, inBuf: inBuf, outBuf: outBuf, readLock: sync.Mutex{}, writeLock: sync.Mutex{}}
 				cur.fdconns[c.fd] = c
 				atomic.AddInt64(&cur.count, 1)
 				return cur.loopOpen(c)
@@ -215,6 +220,8 @@ func (lp *loop) loopCloseConn(c *conn) error {
 	if lp.poll.Delete(c.fd) == nil && syscall.Close(c.fd) == nil {
 		delete(lp.fdconns, c.fd)
 		atomic.AddInt64(&lp.count, -1)
+		c.outBuf.recover()
+		c.outBuf.recover()
 		switch lp.server.eventHandler.Closed(c) {
 		case None:
 		case Shutdown:
